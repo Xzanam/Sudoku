@@ -20,9 +20,9 @@ typedef int32_t i32;
 typedef int64_t i64;
 
 typedef struct {
-  int x;
-  int y;
-} Coord;
+  i32 x;
+  i32 y;
+} Position;
 
 typedef struct {
   u16 row_mask[9];
@@ -32,10 +32,10 @@ typedef struct {
 
 typedef i32 Sudoku[N][N];
 
-Coord gPos = {0, 0}; // Tracks the relative coordinates i.e index
+Position gPos = {0, 0}; // Tracks the relative coordinates i.e index
 BitMasks g_mask = {0};
 
-int last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
+i32 last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
 // utils
 bool isDigit(char c) { return c >= 48 && c <= 57; }
 
@@ -43,26 +43,26 @@ void draw_grid(WINDOW *window, Sudoku grid);
 void draw_horizontal_lines(WINDOW *window);
 void draw_vertical_lines(WINDOW *window);
 
-void move_right(Coord *currPos);
-void move_left(Coord *currPos);
-void move_up(Coord *currPos);
-void move_down(Coord *currPos);
+void move_right(Position *currPos);
+void move_left(Position *currPos);
+void move_up(Position *currPos);
+void move_down(Position *currPos);
 void print_grid(WINDOW *window, Sudoku grid);
 
 // For Sudoku Generation and Digging
-void fisher_yates_shuffle(int *arr, int n);
-int is_safe(int grid[N][N], int row, int col, int num, BitMasks *masks);
-void set_bit(BitMasks *masks, int row, int col, int num);
-void clear_bit(BitMasks *masks, int row, int col, int num);
-int get_box_idx(int row, int col);
-int generate_sudoku(Sudoku grid, int row, int col);
-void count_solutions(Sudoku grid, int row, int col, int *count, BitMasks mask);
-void remove_cells(Sudoku grid, int n_cells_to_remove);
+void fisher_yates_shuffle(i32 *arr, i32 n);
+i32 is_safe(i32 grid[N][N], i32 row, i32 col, i32 num, BitMasks *masks);
+void set_bit(BitMasks *masks, i32 row, i32 col, i32 num);
+void clear_bit(BitMasks *masks, i32 row, i32 col, i32 num);
+i32 get_box_idx(i32 row, i32 col);
+i32 generate_sudoku(Sudoku grid, i32 row, i32 col);
+void count_solutions(Sudoku grid, i32 row, i32 col, i32 *count, BitMasks mask);
+void remove_cells(Sudoku grid, i32 n_cells_to_remove);
 
 // void addCh(WINDOW *window, char ch);
 void insert_num(Sudoku grid, char ch);
 
-int main() {
+i32 main() {
   initscr();
   noecho();
   cbreak();
@@ -76,13 +76,13 @@ int main() {
 
   generate_sudoku(solution, 0, 0);
   memcpy(puzzle, solution, sizeof(Sudoku));
-  remove_cells(puzzle, 40);
+  remove_cells(puzzle, 60);
 
-  int midpoint = COLS / 2;
+  i32 midpoint = COLS / 2;
   bool isRunning = true;
   window = newwin(W_HEIGHT, W_WIDTH, 1, midpoint - (W_WIDTH) / 2);
 
-  int debug_h = 5;
+  i32 debug_h = 5;
   debugWindow = newwin(debug_h, 60, LINES - debug_h - 1, midpoint - 60 / 2);
 
   keypad(window, true);
@@ -94,7 +94,7 @@ int main() {
   }
 
   draw_grid(window, puzzle);
-  int ch;
+  i32 ch;
   while (isRunning) {
 
     ch = wgetch(window);
@@ -163,96 +163,89 @@ void draw_grid(WINDOW *window, Sudoku grid) {
 }
 
 void draw_horizontal_lines(WINDOW *window) {
-  for (int i = 1; i < N_H_LINES; i++) {
+  for (i32 i = 1; i < N_H_LINES; i++) {
     mvwhline(window, i * V_STEP, 1, 0, W_WIDTH - 2);
   }
 }
 void draw_vertical_lines(WINDOW *window) {
-  for (int i = 1; i < N_V_LINES; i++) {
+  for (i32 i = 1; i < N_V_LINES; i++) {
     mvwvline(window, 1, i * H_STEP, 0, W_HEIGHT - 2);
   }
 }
 
 void print_grid(WINDOW *window, Sudoku sudokuGrid) {
-  for (int i = 0, x = 3; i < N; i++, x += H_STEP) {
-    for (int j = 0, y = 1; j < N; j++, y += V_STEP) {
+  for (i32 i = 0, x = 3; i < N; i++, x += H_STEP) {
+    for (i32 j = 0, y = 1; j < N; j++, y += V_STEP) {
       mvwaddch(window, y, x, sudokuGrid[j][i] ? sudokuGrid[j][i] + '0' : ' ');
     }
   }
   wmove(window, 1, 3);
 }
 
-// void addCh(WINDOW *window, char ch) { waddch(window, ch); }
 void insert_num(Sudoku grid, char ch) { grid[gPos.y][gPos.x] = ch - '0'; }
 
-void move_right(Coord *coord) {
+void move_right(Position *pos) {
   if (last_x + H_STEP < W_WIDTH - 1) {
     last_x += H_STEP;
-    coord->x = last_x / H_STEP;
+    pos->x = last_x / H_STEP;
   }
-
-  // wmove(window, y, x + H_STEP);
 }
 
-void move_left(Coord *coord) {
+void move_left(Position *pos) {
   if (last_x - H_STEP > 0) {
     last_x = last_x - H_STEP;
-    coord->x = last_x / H_STEP;
+    pos->x = last_x / H_STEP;
   }
-
-  // wmove(window, y, x - H_STEP);
 }
 
-void move_up(Coord *coord) {
+void move_up(Position *pos) {
   if (last_y - V_STEP > 0) {
     last_y = last_y - V_STEP;
-    coord->y = last_y / V_STEP;
+    pos->y = last_y / V_STEP;
   }
-  // wmove(window, y - V_STEP, x);
 }
 
-void move_down(Coord *coord) {
+void move_down(Position *pos) {
   if (last_y + V_STEP < W_HEIGHT) {
     last_y = last_y + V_STEP;
-    coord->y = last_y / V_STEP;
+    pos->y = last_y / V_STEP;
   }
-  // wmove(window, y + V_STEP, x);
 }
 
-void fisher_yates_shuffle(int *arr, int n) {
-  for (int i = n - 1; i >= 0; i--) {
-    int j = rand() % (i + 1);
-    int temp = arr[i];
+void fisher_yates_shuffle(i32 *arr, i32 n) {
+  for (i32 i = n - 1; i >= 0; i--) {
+    i32 j = rand() % (i + 1);
+    i32 temp = arr[i];
     arr[i] = arr[j];
     arr[j] = temp;
   }
 }
 
-int is_safe(int grid[N][N], int row, int col, int num, BitMasks *masks) {
+i32 is_safe(i32 grid[N][N], i32 row, i32 col, i32 num, BitMasks *masks) {
   u16 bitflag = 1 << (num - 1);
   return !(masks->row_mask[row] & bitflag) &&
          !(masks->col_mask[col] & bitflag) &&
          !(masks->box_mask[get_box_idx(row, col)] & bitflag);
 }
 
-void set_bit(BitMasks *masks, int row, int col, int num) {
-  int bitflag = 1 << (num - 1);
+void set_bit(BitMasks *masks, i32 row, i32 col, i32 num) {
+  i32 bitflag = 1 << (num - 1);
 
   masks->row_mask[row] |= bitflag;
   masks->col_mask[col] |= bitflag;
   masks->box_mask[get_box_idx(row, col)] |= bitflag;
 }
 
-void clear_bit(BitMasks *masks, int row, int col, int num) {
+void clear_bit(BitMasks *masks, i32 row, i32 col, i32 num) {
 
-  int bitflag = 1 << (num - 1);
+  i32 bitflag = 1 << (num - 1);
   masks->row_mask[row] &= ~bitflag;
   masks->col_mask[col] &= ~bitflag;
   masks->box_mask[get_box_idx(row, col)] &= ~bitflag;
 }
-int get_box_idx(int row, int col) { return (row / 3) * 3 + (col / 3); }
+i32 get_box_idx(i32 row, i32 col) { return (row / 3) * 3 + (col / 3); }
 
-int generate_sudoku(Sudoku sudokuGrid, int row, int col) {
+i32 generate_sudoku(Sudoku sudokuGrid, i32 row, i32 col) {
   if (col == N) {
     row++;
     col = 0;
@@ -262,10 +255,10 @@ int generate_sudoku(Sudoku sudokuGrid, int row, int col) {
     return 1;
   }
 
-  int nums[N] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+  i32 nums[N] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
   fisher_yates_shuffle(nums, N);
-  for (int i = 0; i < N; i++) {
-    int num = nums[i];
+  for (i32 i = 0; i < N; i++) {
+    i32 num = nums[i];
 
     if (is_safe(sudokuGrid, row, col, num, &g_mask)) {
       sudokuGrid[row][col] = num;
@@ -277,7 +270,7 @@ int generate_sudoku(Sudoku sudokuGrid, int row, int col) {
   }
   return 0;
 }
-void count_solutions(Sudoku b, int row, int col, int *count, BitMasks mask) {
+void count_solutions(Sudoku b, i32 row, i32 col, i32 *count, BitMasks mask) {
   if (*count > 1)
     return;
 
@@ -296,9 +289,9 @@ void count_solutions(Sudoku b, int row, int col, int *count, BitMasks mask) {
     return;
   }
 
-  int box = get_box_idx(row, col);
+  i32 box = get_box_idx(row, col);
 
-  for (int num = 1; num <= 9; ++num) {
+  for (i32 num = 1; num <= 9; ++num) {
     u16 bitflag = 1 << (num - 1);
     if (!(mask.row_mask[row] & bitflag) && !(mask.col_mask[col] & bitflag) &&
         !(mask.box_mask[box] & bitflag)) {
@@ -311,29 +304,29 @@ void count_solutions(Sudoku b, int row, int col, int *count, BitMasks mask) {
 }
 
 // Digging
-void remove_cells(Sudoku b, int n_cells_to_remove) {
-  int cells[N * N];
-  for (int i = 0; i < N * N; ++i)
+void remove_cells(Sudoku b, i32 n_cells_to_remove) {
+  i32 cells[N * N];
+  for (i32 i = 0; i < N * N; ++i)
     cells[i] = i;
 
   fisher_yates_shuffle(cells, N * N);
 
-  int removed = 0;
-  for (int i = 0; i < N * N && removed < n_cells_to_remove; i++) {
-    int row = cells[i] / N;
-    int col = cells[i] % N;
+  i32 removed = 0;
+  for (i32 i = 0; i < N * N && removed < n_cells_to_remove; i++) {
+    i32 row = cells[i] / N;
+    i32 col = cells[i] % N;
 
     if (b[row][col] == 0)
       continue;
 
-    int backup = b[row][col];
+    i32 backup = b[row][col];
     u16 bitflag = 1 << (backup - 1);
-    int box = get_box_idx(row, col);
+    i32 box = get_box_idx(row, col);
 
     b[row][col] = 0;
     clear_bit(&g_mask, row, col, backup);
 
-    int count = 0;
+    i32 count = 0;
     count_solutions(b, 0, 0, &count, g_mask);
 
     if (count != 1) {
