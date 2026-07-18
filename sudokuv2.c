@@ -59,7 +59,10 @@ i32 generate_sudoku(Sudoku grid, i32 row, i32 col);
 void count_solutions(Sudoku grid, i32 row, i32 col, i32 *count, BitMasks mask);
 void remove_cells(Sudoku grid, i32 n_cells_to_remove);
 
-// void addCh(WINDOW *window, char ch);
+typedef enum { EASY, MEDIUM, HARD, EXPERT } Level;
+
+// Game Logic and helpers
+int map_level_to_nclues(Level lvl);
 void insert_num(Sudoku grid, char ch);
 
 i32 main() {
@@ -337,4 +340,33 @@ void remove_cells(Sudoku b, i32 n_cells_to_remove) {
       removed++;
     }
   }
+}
+
+int map_level_to_nclues(Level lvl) {
+  i32 minClues, maxClues;
+  switch (lvl) {
+  case EASY:
+    minClues = 36;
+    maxClues = 40;
+    break;
+  case MEDIUM:
+    minClues = 30;
+    maxClues = 35;
+    break;
+  case HARD:
+    minClues = 25;
+    maxClues = 29;
+    break;
+  case EXPERT:
+    minClues = 20;
+    maxClues = 24;
+    break;
+  default:
+    minClues = 30;
+    maxClues = 35;
+    break;
+  }
+
+  i32 nClues = minClues + rand() % (maxClues - minClues + 1);
+  return N * N - nClues;
 }
