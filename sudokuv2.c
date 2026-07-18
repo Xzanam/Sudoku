@@ -34,6 +34,7 @@ typedef struct {
 
 typedef enum { EASY, MEDIUM, HARD, EXPERT } GameLevel;
 typedef enum { MENU, GAME, HELP, EXIT } GameState;
+typedef enum { CONTINUE, NEWGAME, HOWTOPLAY, MEXIT } MenuState;
 typedef i32 Sudoku[N][N];
 
 typedef struct {
@@ -42,31 +43,29 @@ typedef struct {
   Sudoku fixed;
   GameState state;
   GameLevel gameLevel;
-
+  MenuState menuState;
   bool isRunning;
-} Game;
+} GameContext;
 
 Position gPos = {0, 0}; // Tracks the relative coordinates i.e index
 BitMasks gMask = {0};
-
 i32 last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
-//
 // utils
 bool isDigit(char c) { return c >= 48 && c <= 57; }
 
-void draw(WINDOW *window, GameState state, Sudoku grid);
+void draw(WINDOW *window, GameState state, GameContext *ctx);
 void draw_grid(WINDOW *window, Sudoku grid);
 void draw_horizontal_lines(WINDOW *window);
 void draw_vertical_lines(WINDOW *window);
 
-void draw_menu(WINDOW *window);
-void draw_game(WINDOW *window, Sudoku grid);
-void draw_help(WINDOW *window);
+void draw_menu(WINDOW *window, GameContext *ctx);
+void draw_game(WINDOW *window, GameContext *ctx);
+void draw_help(WINDOW *window, GameContext *ctx);
 
 // inpute handlers
-void handle_menu_input(char ch, GameState *gState);
-void handle_game_input(int ch, GameState *gState, Sudoku grid);
-void handle_help_input(char ch, GameState *gState);
+void handle_menu_input(i32 ch, GameContext *ctx);
+void handle_game_input(i32 ch, GameContext *ctx);
+void handle_help_input(char ch, GameContext *ctx);
 
 // Game Input Hanlding
 void move_right(Position *currPos);
@@ -99,16 +98,16 @@ i32 main() {
   srand(time(NULL));
 
   WINDOW *window, *debugWindow;
-  Sudoku solution = {0}, puzzle = {0}, fixed = {0};
+  Sudoku solution;
 
+  GameContext ctx = {.state = MENU, MEDIUM, true};
   generate_sudoku(solution, 0, 0);
-  memcpy(puzzle, solution, sizeof(Sudoku));
-  remove_cells(puzzle, EASY);
-  // memcpy(fixed, puzzle, sizeof(Sudoku));
+  memcpy(ctx.solution, solution, sizeof(Sudoku));
+  memcpy(ctx.puzzle, solution, sizeof(Sudoku));
+  remove_cells(ctx.puzzle, map_level_to_nclues(EASY));
+  memcpy(ctx.fixed, ctx.puzzle, sizeof(Sudoku));
 
   i32 midpoint = COLS / 2;
-
-  GameState state = GAME;
 
   window = newwin(W_HEIGHT, W_WIDTH, 1, midpoint - (W_WIDTH) / 2);
 
@@ -125,9 +124,9 @@ i32 main() {
 
   // draw_grid(window, puzzle);
   i32 ch;
-  while (state != EXIT) {
+  while (ctx.state != EXIT) {
 
-    draw(window, state, puzzle);
+    draw(window, ctx.state, &ctx);
 
     wclear(debugWindow);
     box(debugWindow, 0, 0);
@@ -142,16 +141,16 @@ i32 main() {
     doupdate();
 
     ch = wgetch(window);
-    switch (state) {
+    switch (ctx.state) {
     case MENU:
-      handle_menu_input(ch, &state);
+      handle_menu_input(ch, &ctx);
       break;
     case GAME:
-      handle_game_input(ch, &state, puzzle);
+      handle_game_input(ch, &ctx);
       break;
 
     case HELP:
-      handle_help_input(ch, &state);
+      handle_help_input(ch, &ctx);
       break;
     default:
       break;
@@ -165,25 +164,64 @@ i32 main() {
   return 0;
 }
 
-void draw(WINDOW *window, GameState gState, Sudoku grid) {
+void draw(WINDOW *window, GameState gState, GameContext *ctx) {
   switch (gState) {
   case MENU:
-    draw_menu(window);
+    draw_menu(window, ctx);
     break;
   case GAME:
-    draw_game(window, grid);
+    draw_game(window, ctx);
     break;
   case HELP:
-    draw_help(window);
+    draw_help(window, ctx);
     break;
   case EXIT:
     break;
   }
 }
 
-void draw_menu(WINDOW *window) {}
-void draw_game(WINDOW *window, Sudoku grid) { draw_grid(window, grid); }
-void draw_help(WINDOW *window) {}
+void draw_menu(WINDOW *window, GameContext *ctx) {
+  curs_set(0);
+
+  const char *menu[] = {
+      "Continue",
+      "New Game",
+      "Help",
+      "Exit",
+  };
+
+  i32 width = getmaxx(window);
+
+  werase(window);
+  box(window, 0, 0);
+  for (i32 i = 0; i < 4; i++) {
+    i32 x = (width - strlen(menu[i])) / 2;
+    i32 y = 5 + i * 2;
+    if (i == ctx->menuState) {
+      wattron(window, A_REVERSE);
+      mvwaddch(window, y, x - 2, ' ');
+      wattroff(window, A_REVERSE);
+
+      wattron(window, COLOR_PAIR(2) | A_BOLD);
+      mvwprintw(window, y, x, "%s", menu[i]);
+      wattroff(window, COLOR_PAIR(2) | A_BOLD);
+
+      wattron(window, A_REVERSE);
+      mvwaddch(window, y, x + 1 + strlen(menu[i]), ' ');
+      wattroff(window, A_REVERSE);
+    } else {
+      mvwprintw(window, y, x, "%s", menu[i]);
+    }
+
+    // if (i == selected)
+    // wattroff(window, COLOR_PAIR(2) | A_BOLD | A_REVERSE);
+  }
+}
+
+void draw_game(WINDOW *window, GameContext *ctx) {
+  draw_grid(window, ctx->puzzle);
+}
+void draw_help(WINDOW *window, GameContext *ctx) {}
 
 void draw_grid(WINDOW *window, Sudoku grid) {
   box(window, 0, 0);
@@ -398,14 +436,13 @@ i32 map_level_to_nclues(GameLevel lvl) {
   return N * N - nClues;
 }
 
-void handle_game_input(int ch, GameState *state, Sudoku grid) {
+void handle_game_input(int ch, GameContext *ctx) {
   if (isDigit(ch)) {
-    insert_num(grid, ch);
+    insert_num(ctx->puzzle, ch);
   } else {
     switch (ch) {
     case 'q':
-    case KEY_ESC:
-      *state = EXIT;
+      ctx->state = EXIT;
       break;
     case KEY_RIGHT:
     case 'l':
@@ -433,5 +470,27 @@ void handle_game_input(int ch, GameState *state, Sudoku grid) {
   }
 }
 
-void handle_menu_input(char ch, GameState *state) {}
-void handle_help_input(char ch, GameState *state) {}
+void handle_menu_input(i32 ch, GameContext *ctx) {
+  switch (ch) {
+  case 'q':
+  case 'Q':
+    ctx->state = EXIT;
+    break;
+  case 'j':
+  case 'J':
+  case KEY_DOWN:
+    if (ctx->menuState < MEXIT)
+      ctx->menuState++;
+    else
+      ctx->menuState = CONTINUE;
+    break;
+  case 'k':
+  case 'K':
+  case KEY_UP:
+    if (ctx->menuState > CONTINUE)
+      ctx->menuState--;
+    else
+      ctx->menuState = MEXIT;
+  }
+}
+void handle_help_input(char ch, GameContext *ctx) {}
