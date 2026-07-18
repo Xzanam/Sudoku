@@ -14,6 +14,8 @@
 #define H_STEP 5
 #define V_STEP 2
 
+#define KEY_ESC 27
+
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef int32_t i32;
@@ -30,19 +32,43 @@ typedef struct {
   u16 box_mask[9];
 } BitMasks;
 
+typedef enum { EASY, MEDIUM, HARD, EXPERT } GameLevel;
+typedef enum { MENU, GAME, HELP, EXIT } GameState;
 typedef i32 Sudoku[N][N];
 
+typedef struct {
+  Sudoku puzzle;
+  Sudoku solution;
+  Sudoku fixed;
+  GameState state;
+  GameLevel gameLevel;
+
+  bool isRunning;
+} Game;
+
 Position gPos = {0, 0}; // Tracks the relative coordinates i.e index
-BitMasks g_mask = {0};
+BitMasks gMask = {0};
 
 i32 last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
+//
 // utils
 bool isDigit(char c) { return c >= 48 && c <= 57; }
 
+void draw(WINDOW *window, GameState state, Sudoku grid);
 void draw_grid(WINDOW *window, Sudoku grid);
 void draw_horizontal_lines(WINDOW *window);
 void draw_vertical_lines(WINDOW *window);
 
+void draw_menu(WINDOW *window);
+void draw_game(WINDOW *window, Sudoku grid);
+void draw_help(WINDOW *window);
+
+// inpute handlers
+void handle_menu_input(char ch, GameState *gState);
+void handle_game_input(int ch, GameState *gState, Sudoku grid);
+void handle_help_input(char ch, GameState *gState);
+
+// Game Input Hanlding
 void move_right(Position *currPos);
 void move_left(Position *currPos);
 void move_up(Position *currPos);
@@ -59,10 +85,9 @@ i32 generate_sudoku(Sudoku grid, i32 row, i32 col);
 void count_solutions(Sudoku grid, i32 row, i32 col, i32 *count, BitMasks mask);
 void remove_cells(Sudoku grid, i32 n_cells_to_remove);
 
-typedef enum { EASY, MEDIUM, HARD, EXPERT } Level;
-
 // Game Logic and helpers
-int map_level_to_nclues(Level lvl);
+int map_level_to_nclues(GameLevel lvl);
+
 void insert_num(Sudoku grid, char ch);
 
 i32 main() {
@@ -70,19 +95,21 @@ i32 main() {
   noecho();
   cbreak();
   curs_set(1);
-
   // Seeding the random generator
   srand(time(NULL));
 
   WINDOW *window, *debugWindow;
-  Sudoku solution = {0}, puzzle = {0};
+  Sudoku solution = {0}, puzzle = {0}, fixed = {0};
 
   generate_sudoku(solution, 0, 0);
   memcpy(puzzle, solution, sizeof(Sudoku));
-  remove_cells(puzzle, 60);
+  remove_cells(puzzle, EASY);
+  // memcpy(fixed, puzzle, sizeof(Sudoku));
 
   i32 midpoint = COLS / 2;
-  bool isRunning = true;
+
+  GameState state = GAME;
+
   window = newwin(W_HEIGHT, W_WIDTH, 1, midpoint - (W_WIDTH) / 2);
 
   i32 debug_h = 5;
@@ -96,50 +123,14 @@ i32 main() {
     return -1;
   }
 
-  draw_grid(window, puzzle);
+  // draw_grid(window, puzzle);
   i32 ch;
-  while (isRunning) {
+  while (state != EXIT) {
 
-    ch = wgetch(window);
+    draw(window, state, puzzle);
 
     wclear(debugWindow);
     box(debugWindow, 0, 0);
-
-    if (isDigit(ch)) {
-      mvwprintw(debugWindow, 2, 2, "It's a digit");
-      insert_num(puzzle, ch);
-      // addCh(window, ch);
-    } else {
-      switch (ch) {
-      case 'q':
-        isRunning = false;
-        break;
-      case KEY_RIGHT:
-      case 'l':
-      case 'L':
-        move_right(&gPos);
-        break;
-      case KEY_LEFT:
-      case 'h':
-      case 'H':
-        move_left(&gPos);
-        break;
-      case KEY_UP:
-      case 'k':
-      case 'K':
-        move_up(&gPos);
-        break;
-      case KEY_DOWN:
-      case 'j':
-      case 'J':
-        move_down(&gPos);
-        break;
-      default:
-        break;
-      }
-    }
-
-    draw_grid(window, puzzle);
 
     mvwprintw(debugWindow, 1, 1, "%d, %d", gPos.y, gPos.x);
     mvwprintw(debugWindow, 3, 1, "%d, %d", last_y, last_x);
@@ -149,6 +140,22 @@ i32 main() {
 
     wmove(window, last_y, last_x);
     doupdate();
+
+    ch = wgetch(window);
+    switch (state) {
+    case MENU:
+      handle_menu_input(ch, &state);
+      break;
+    case GAME:
+      handle_game_input(ch, &state, puzzle);
+      break;
+
+    case HELP:
+      handle_help_input(ch, &state);
+      break;
+    default:
+      break;
+    }
   }
 
   printf("Exiting...");
@@ -157,6 +164,26 @@ i32 main() {
 
   return 0;
 }
+
+void draw(WINDOW *window, GameState gState, Sudoku grid) {
+  switch (gState) {
+  case MENU:
+    draw_menu(window);
+    break;
+  case GAME:
+    draw_game(window, grid);
+    break;
+  case HELP:
+    draw_help(window);
+    break;
+  case EXIT:
+    break;
+  }
+}
+
+void draw_menu(WINDOW *window) {}
+void draw_game(WINDOW *window, Sudoku grid) { draw_grid(window, grid); }
+void draw_help(WINDOW *window) {}
 
 void draw_grid(WINDOW *window, Sudoku grid) {
   box(window, 0, 0);
@@ -263,12 +290,12 @@ i32 generate_sudoku(Sudoku sudokuGrid, i32 row, i32 col) {
   for (i32 i = 0; i < N; i++) {
     i32 num = nums[i];
 
-    if (is_safe(sudokuGrid, row, col, num, &g_mask)) {
+    if (is_safe(sudokuGrid, row, col, num, &gMask)) {
       sudokuGrid[row][col] = num;
-      set_bit(&g_mask, row, col, num);
+      set_bit(&gMask, row, col, num);
       if (generate_sudoku(sudokuGrid, row, col + 1))
         return 1;
-      clear_bit(&g_mask, row, col, num);
+      clear_bit(&gMask, row, col, num);
     }
   }
   return 0;
@@ -327,22 +354,22 @@ void remove_cells(Sudoku b, i32 n_cells_to_remove) {
     i32 box = get_box_idx(row, col);
 
     b[row][col] = 0;
-    clear_bit(&g_mask, row, col, backup);
+    clear_bit(&gMask, row, col, backup);
 
     i32 count = 0;
-    count_solutions(b, 0, 0, &count, g_mask);
+    count_solutions(b, 0, 0, &count, gMask);
 
     if (count != 1) {
       // multiple soluton exists so back up
       b[row][col] = backup;
-      set_bit(&g_mask, row, col, backup);
+      set_bit(&gMask, row, col, backup);
     } else {
       removed++;
     }
   }
 }
 
-int map_level_to_nclues(Level lvl) {
+i32 map_level_to_nclues(GameLevel lvl) {
   i32 minClues, maxClues;
   switch (lvl) {
   case EASY:
@@ -370,3 +397,41 @@ int map_level_to_nclues(Level lvl) {
   i32 nClues = minClues + rand() % (maxClues - minClues + 1);
   return N * N - nClues;
 }
+
+void handle_game_input(int ch, GameState *state, Sudoku grid) {
+  if (isDigit(ch)) {
+    insert_num(grid, ch);
+  } else {
+    switch (ch) {
+    case 'q':
+    case KEY_ESC:
+      *state = EXIT;
+      break;
+    case KEY_RIGHT:
+    case 'l':
+    case 'L':
+      move_right(&gPos);
+      break;
+    case KEY_LEFT:
+    case 'h':
+    case 'H':
+      move_left(&gPos);
+      break;
+    case KEY_UP:
+    case 'k':
+    case 'K':
+      move_up(&gPos);
+      break;
+    case KEY_DOWN:
+    case 'j':
+    case 'J':
+      move_down(&gPos);
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+void handle_menu_input(char ch, GameState *state) {}
+void handle_help_input(char ch, GameState *state) {}
