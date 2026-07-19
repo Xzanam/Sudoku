@@ -87,6 +87,8 @@ void remove_cells(Sudoku grid, i32 n_cells_to_remove);
 // Game Logic and helpers
 int map_level_to_nclues(GameLevel lvl);
 
+void go_to_state(GameState state, GameContext *ctx) { ctx->state = state; }
+
 void insert_num(Sudoku grid, char ch);
 
 i32 main() {
@@ -143,13 +145,16 @@ i32 main() {
     ch = wgetch(window);
     switch (ctx.state) {
     case MENU:
+      curs_set(0);
       handle_menu_input(ch, &ctx);
       break;
     case GAME:
+      curs_set(1);
       handle_game_input(ch, &ctx);
       break;
 
     case HELP:
+      curs_set(0);
       handle_help_input(ch, &ctx);
       break;
     default:
@@ -181,7 +186,6 @@ void draw(WINDOW *window, GameState gState, GameContext *ctx) {
 }
 
 void draw_menu(WINDOW *window, GameContext *ctx) {
-  curs_set(0);
 
   const char *menu[] = {
       "Continue",
@@ -219,9 +223,10 @@ void draw_menu(WINDOW *window, GameContext *ctx) {
 }
 
 void draw_game(WINDOW *window, GameContext *ctx) {
+  werase(window);
   draw_grid(window, ctx->puzzle);
 }
-void draw_help(WINDOW *window, GameContext *ctx) {}
+void draw_help(WINDOW *window, GameContext *ctx) { werase(window); }
 
 void draw_grid(WINDOW *window, Sudoku grid) {
   box(window, 0, 0);
@@ -442,7 +447,7 @@ void handle_game_input(int ch, GameContext *ctx) {
   } else {
     switch (ch) {
     case 'q':
-      ctx->state = EXIT;
+      ctx->state = MENU;
       break;
     case KEY_RIGHT:
     case 'l':
@@ -491,6 +496,23 @@ void handle_menu_input(i32 ch, GameContext *ctx) {
       ctx->menuState--;
     else
       ctx->menuState = MEXIT;
+    break;
+
+  case '\n':
+    switch (ctx->menuState) {
+    case NEWGAME:
+      ctx->state = GAME;
+      break;
+    case HOWTOPLAY:
+      ctx->state = HELP;
+      break;
+    case MEXIT:
+      ctx->state = EXIT;
+      break;
+    default:
+      break;
+    }
+    break;
   }
 }
 void handle_help_input(char ch, GameContext *ctx) {}
