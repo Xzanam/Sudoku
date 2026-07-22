@@ -1,3 +1,4 @@
+#include <curses.h>
 #include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,14 @@ typedef struct {
 typedef enum { EASY, MEDIUM, HARD, EXPERT } GameLevel;
 typedef enum { MENU, GAME, HELP, EXIT } GameState;
 typedef enum { CONTINUE, NEWGAME, HOWTOPLAY, MEXIT } MenuState;
+
 typedef i32 Sudoku[N][N];
+
+typedef struct {
+  WINDOW *window;
+  GameState state; // UI Based on which game state is active;
+  bool isVisible;
+} UIWindow;
 
 typedef struct {
   Sudoku puzzle;
@@ -53,14 +61,14 @@ i32 last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
 // utils
 bool isDigit(char c) { return c >= 48 && c <= 57; }
 
-void draw(WINDOW *window, GameState state, GameContext *ctx);
-void draw_grid(WINDOW *window, Sudoku grid);
+// void draw(WINDOW *window, GameState state, GameContext *ctx);
+void draw_grid(WINDOW *window, Sudoku grid, Sudoku fixed);
 void draw_horizontal_lines(WINDOW *window);
 void draw_vertical_lines(WINDOW *window);
 
-void draw_menu(WINDOW *window, GameContext *ctx);
-void draw_game(WINDOW *window, GameContext *ctx);
-void draw_help(WINDOW *window, GameContext *ctx);
+void draw_menu(UIWindow *window, GameContext *ctx);
+void draw_game(UIWindow *window, GameContext *ctx);
+void draw_help(UIWindow *window, GameContext *ctx);
 
 // inpute handlers
 void handle_menu_input(i32 ch, GameContext *ctx);
@@ -68,11 +76,11 @@ void handle_game_input(i32 ch, GameContext *ctx);
 void handle_help_input(char ch, GameContext *ctx);
 
 // Game Input Hanlding
-void move_right(Position *currPos);
+void move_right(Position *currPos, Sudoku fixed);
 void move_left(Position *currPos);
 void move_up(Position *currPos);
 void move_down(Position *currPos);
-void print_grid(WINDOW *window, Sudoku grid);
+void print_grid(WINDOW *window, Sudoku grid, Sudoku fixed);
 
 // For Sudoku Generation and Digging
 void fisher_yates_shuffle(i32 *arr, i32 n);
@@ -87,90 +95,18 @@ void remove_cells(Sudoku grid, i32 n_cells_to_remove);
 // Game Logic and helpers
 int map_level_to_nclues(GameLevel lvl);
 
-void go_to_state(GameState state, GameContext *ctx) { ctx->state = state; }
-
+void set_game_state(GameState state, GameContext *ctx) { ctx->state = state; }
 void insert_num(Sudoku grid, char ch);
 
-i32 main() {
-  initscr();
-  noecho();
-  cbreak();
-  curs_set(1);
-  // Seeding the random generator
-  srand(time(NULL));
+bool init_menu_window(UIWindow *win);
+bool init_game_window(UIWindow *win);
+bool init_help_window(UIWindow *win);
+bool init_exit_window(UIWindow *win);
 
-  WINDOW *window, *debugWindow;
-  Sudoku solution;
-
-  GameContext ctx = {.state = MENU, MEDIUM, true};
-  generate_sudoku(solution, 0, 0);
-  memcpy(ctx.solution, solution, sizeof(Sudoku));
-  memcpy(ctx.puzzle, solution, sizeof(Sudoku));
-  remove_cells(ctx.puzzle, map_level_to_nclues(EASY));
-  memcpy(ctx.fixed, ctx.puzzle, sizeof(Sudoku));
-
-  i32 midpoint = COLS / 2;
-
-  window = newwin(W_HEIGHT, W_WIDTH, 1, midpoint - (W_WIDTH) / 2);
-
-  i32 debug_h = 5;
-  debugWindow = newwin(debug_h, 60, LINES - debug_h - 1, midpoint - 60 / 2);
-
-  keypad(window, true);
-  keypad(debugWindow, true);
-
-  if (window == NULL) {
-    endwin();
-    return -1;
-  }
-
-  // draw_grid(window, puzzle);
-  i32 ch;
-  while (ctx.state != EXIT) {
-
-    draw(window, ctx.state, &ctx);
-
-    wclear(debugWindow);
-    box(debugWindow, 0, 0);
-
-    mvwprintw(debugWindow, 1, 1, "%d, %d", gPos.y, gPos.x);
-    mvwprintw(debugWindow, 3, 1, "%d, %d", last_y, last_x);
-
-    wnoutrefresh(debugWindow);
-    wnoutrefresh(window);
-
-    wmove(window, last_y, last_x);
-    doupdate();
-
-    ch = wgetch(window);
-    switch (ctx.state) {
-    case MENU:
-      curs_set(0);
-      handle_menu_input(ch, &ctx);
-      break;
-    case GAME:
-      curs_set(1);
-      handle_game_input(ch, &ctx);
-      break;
-
-    case HELP:
-      curs_set(0);
-      handle_help_input(ch, &ctx);
-      break;
-    default:
-      break;
-    }
-  }
-
-  printf("Exiting...");
-  delwin(window);
-  endwin();
-
-  return 0;
-}
-
-void draw(WINDOW *window, GameState gState, GameContext *ctx) {
-  switch (gState) {
+void draw(UIWindow *window, GameContext *ctx) {
+  werase(stdscr);
+  wnoutrefresh(stdscr);
+  switch (window->state) {
   case MENU:
     draw_menu(window, ctx);
     break;
@@ -185,8 +121,114 @@ void draw(WINDOW *window, GameState gState, GameContext *ctx) {
   }
 }
 
-void draw_menu(WINDOW *window, GameContext *ctx) {
+void handle_input(int ch, GameContext *ctx);
 
+UIWindow *get_curr_active_window(GameContext *ctx, UIWindow *menuW,
+                                 UIWindow *gameW, UIWindow *helpW,
+                                 UIWindow *exitW);
+
+i32 main() {
+  initscr();
+  noecho();
+  cbreak();
+  curs_set(1);
+  refresh();
+
+  start_color();
+  use_default_colors();          // Optional: preserve terminal background
+  init_pair(1, COLOR_WHITE, -1); // Normal cells
+  init_pair(2, COLOR_RED, -1);
+  init_pair(3, COLOR_CYAN, -1);
+  // Seeding the random generator
+  srand(time(NULL));
+
+  i32 midpoint = COLS / 2;
+  int x, y;
+  getmaxyx(stdscr, y, x);
+  WINDOW *debugWindow;
+
+  i32 debug_h = 5;
+  debugWindow = newwin(debug_h, 60, LINES - debug_h - 1, midpoint - 60 / 2);
+
+  keypad(debugWindow, true);
+  UIWindow menuWindow, gameWindow, helpWindow, exitWindow;
+  if (!init_menu_window(&menuWindow) || !init_game_window(&gameWindow) ||
+      !init_help_window(&helpWindow) || !init_exit_window(&exitWindow)) {
+    endwin();
+    return -1;
+  }
+
+  Sudoku solution;
+
+  GameContext ctx = {.state = MENU, MEDIUM, true};
+  generate_sudoku(solution, 0, 0);
+  memcpy(ctx.solution, solution, sizeof(Sudoku));
+  memcpy(ctx.puzzle, solution, sizeof(Sudoku));
+  remove_cells(ctx.puzzle, map_level_to_nclues(ctx.gameLevel));
+  memcpy(ctx.fixed, ctx.puzzle, sizeof(Sudoku));
+
+  curs_set(0);
+
+  i32 ch;
+  // draw_menu(&menuWindow, &ctx);
+  // wrefresh(menuWindow.window);
+  //
+  draw(&menuWindow, &ctx);
+  doupdate();
+  while (ctx.state != EXIT) {
+
+    UIWindow *active = get_curr_active_window(&ctx, &menuWindow, &gameWindow,
+                                              &helpWindow, &exitWindow);
+
+    ch = wgetch(active->window);
+
+    handle_input(ch, &ctx);
+
+    active = get_curr_active_window(&ctx, &menuWindow, &gameWindow, &helpWindow,
+                                    &exitWindow);
+    draw(active, &ctx);
+    // switch (ctx.state) {
+    // case MENU:
+    //   curs_set(0);
+    //   wmove(window, last_y, last_x);
+    //   handle_menu_input(ch, &ctx);
+    //
+    //   break;
+    // case GAME:
+    //   curs_set(1);
+    //   wmove(window, last_y, last_x);
+    //   handle_game_input(ch, &ctx);
+    //   break;
+    //
+    // case HELP:
+    //   curs_set(0);
+    //   handle_help_input(ch, &ctx);
+    //   break;
+    // default:
+    //   break;
+    // }
+
+    // draw(window, ctx.state, &ctx);
+    //
+    // wclear(debugWindow);
+    // box(debugWindow, 0, 0);
+    //
+    // mvwprintw(debugWindow, 1, 1, "%d, %d", gPos.y, gPos.x);
+    // mvwprintw(debugWindow, 3, 1, "%d, %d", last_y, last_x);
+    //
+    // wnoutrefresh(debugWindow);
+    doupdate();
+  }
+
+  printf("Exiting...");
+  // delwin(window);
+  endwin();
+
+  return 0;
+}
+void draw_menu(UIWindow *window, GameContext *ctx) {
+
+  werase(window->window);
   const char *menu[] = {
       "Continue",
       "New Game",
@@ -194,45 +236,50 @@ void draw_menu(WINDOW *window, GameContext *ctx) {
       "Exit",
   };
 
-  i32 width = getmaxx(window);
+  mvwin(window->window, (LINES - W_HEIGHT) / 2, (COLS - W_WIDTH) / 2);
+  i32 width = getmaxx(window->window);
 
-  werase(window);
-  box(window, 0, 0);
+  // box(window, 0, 0);
   for (i32 i = 0; i < 4; i++) {
     i32 x = (width - strlen(menu[i])) / 2;
     i32 y = 5 + i * 2;
     if (i == ctx->menuState) {
-      wattron(window, A_REVERSE);
-      mvwaddch(window, y, x - 2, ' ');
-      wattroff(window, A_REVERSE);
+      wattron(window->window, A_REVERSE);
+      mvwaddch(window->window, y, x - 2, ' ');
+      wattroff(window->window, A_REVERSE);
 
-      wattron(window, COLOR_PAIR(2) | A_BOLD);
-      mvwprintw(window, y, x, "%s", menu[i]);
-      wattroff(window, COLOR_PAIR(2) | A_BOLD);
+      wattron(window->window, COLOR_PAIR(2) | A_BOLD);
+      mvwprintw(window->window, y, x, "%s", menu[i]);
+      wattroff(window->window, COLOR_PAIR(2) | A_BOLD);
 
-      wattron(window, A_REVERSE);
-      mvwaddch(window, y, x + 1 + strlen(menu[i]), ' ');
-      wattroff(window, A_REVERSE);
+      wattron(window->window, A_REVERSE);
+      mvwaddch(window->window, y, x + 1 + strlen(menu[i]), ' ');
+      wattroff(window->window, A_REVERSE);
     } else {
-      mvwprintw(window, y, x, "%s", menu[i]);
+      mvwprintw(window->window, y, x, "%s", menu[i]);
     }
 
     // if (i == selected)
     // wattroff(window, COLOR_PAIR(2) | A_BOLD | A_REVERSE);
   }
+
+  wnoutrefresh(window->window);
 }
 
-void draw_game(WINDOW *window, GameContext *ctx) {
+void draw_game(UIWindow *win, GameContext *ctx) {
+  WINDOW *window = win->window;
   werase(window);
-  draw_grid(window, ctx->puzzle);
+  mvwin(window, (LINES - W_HEIGHT) / 2, (COLS - W_WIDTH) / 2);
+  draw_grid(window, ctx->puzzle, ctx->fixed);
+  wnoutrefresh(window);
 }
-void draw_help(WINDOW *window, GameContext *ctx) { werase(window); }
+void draw_help(UIWindow *window, GameContext *ctx) { werase(window->window); }
 
-void draw_grid(WINDOW *window, Sudoku grid) {
+void draw_grid(WINDOW *window, Sudoku grid, Sudoku fixed) {
   box(window, 0, 0);
   draw_horizontal_lines(window);
   draw_vertical_lines(window);
-  print_grid(window, grid);
+  print_grid(window, grid, fixed);
 }
 
 void draw_horizontal_lines(WINDOW *window) {
@@ -246,10 +293,14 @@ void draw_vertical_lines(WINDOW *window) {
   }
 }
 
-void print_grid(WINDOW *window, Sudoku sudokuGrid) {
+void print_grid(WINDOW *window, Sudoku sudokuGrid, Sudoku fixed) {
   for (i32 i = 0, x = 3; i < N; i++, x += H_STEP) {
     for (i32 j = 0, y = 1; j < N; j++, y += V_STEP) {
+      bool is_fixed = fixed[j][i];
+      if (is_fixed)
+        wattron(window, A_BOLD | COLOR_PAIR(3));
       mvwaddch(window, y, x, sudokuGrid[j][i] ? sudokuGrid[j][i] + '0' : ' ');
+      wattroff(window, A_BOLD | COLOR_PAIR(2));
     }
   }
   wmove(window, 1, 3);
@@ -257,11 +308,13 @@ void print_grid(WINDOW *window, Sudoku sudokuGrid) {
 
 void insert_num(Sudoku grid, char ch) { grid[gPos.y][gPos.x] = ch - '0'; }
 
-void move_right(Position *pos) {
+void move_right(Position *pos, Sudoku fixed) {
   if (last_x + H_STEP < W_WIDTH - 1) {
     last_x += H_STEP;
     pos->x = last_x / H_STEP;
   }
+  if (fixed[pos->x][pos->y])
+    pos->x++;
 }
 
 void move_left(Position *pos) {
@@ -452,7 +505,7 @@ void handle_game_input(int ch, GameContext *ctx) {
     case KEY_RIGHT:
     case 'l':
     case 'L':
-      move_right(&gPos);
+      move_right(&gPos, ctx->fixed);
       break;
     case KEY_LEFT:
     case 'h':
@@ -468,6 +521,9 @@ void handle_game_input(int ch, GameContext *ctx) {
     case 'j':
     case 'J':
       move_down(&gPos);
+      break;
+    case KEY_BACKSPACE:
+      insert_num(ctx->puzzle, '0');
       break;
     default:
       break;
@@ -516,3 +572,78 @@ void handle_menu_input(i32 ch, GameContext *ctx) {
   }
 }
 void handle_help_input(char ch, GameContext *ctx) {}
+
+bool init_menu_window(UIWindow *win) {
+  if (win == NULL)
+    return false;
+  i32 x, y;
+  getmaxyx(stdscr, y, x);
+  win->window = newwin(y, x, 0, 0);
+  if (win->window == NULL)
+    return false;
+  win->isVisible = true;
+  win->state = MENU;
+  keypad(win->window, true);
+  return true;
+}
+bool init_game_window(UIWindow *win) {
+  if (win == NULL)
+    return false;
+
+  i32 midpoint = COLS / 2;
+
+  win->window = newwin(W_HEIGHT, W_WIDTH, 1, midpoint - (W_WIDTH) / 2);
+  if (win->window == NULL)
+    return false;
+  win->isVisible = false;
+  win->state = GAME;
+  keypad(win->window, true);
+  return true;
+}
+
+bool init_help_window(UIWindow *win) {
+  if (win == NULL)
+    return false;
+
+  i32 x, y;
+  getmaxyx(stdscr, y, x);
+  win->window = newwin(y, x, 0, 0);
+  if (win->window == NULL)
+    return false;
+  win->isVisible = false;
+  win->state = HELP;
+  keypad(win->window, true);
+  return true;
+}
+bool init_exit_window(UIWindow *win) { return true; }
+
+void handle_input(i32 ch, GameContext *ctx) {
+  switch (ctx->state) {
+  case MENU:
+    handle_menu_input(ch, ctx);
+    break;
+  case GAME:
+    handle_game_input(ch, ctx);
+    break;
+  case HELP:
+    handle_help_input(ch, ctx);
+    break;
+  case EXIT:
+    break;
+  }
+}
+
+UIWindow *get_curr_active_window(GameContext *ctx, UIWindow *menuW,
+                                 UIWindow *gameW, UIWindow *helpW,
+                                 UIWindow *exitW) {
+  switch (ctx->state) {
+  case MENU:
+    return menuW;
+  case GAME:
+    return gameW;
+  case HELP:
+    return helpW;
+  default:
+    return exitW;
+  }
+}
