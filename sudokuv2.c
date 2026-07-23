@@ -16,6 +16,7 @@
 #define V_STEP 2
 
 #define KEY_ESC 27
+#define MAX_LINES 50
 
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -46,9 +47,15 @@ typedef struct {
 } UIWindow;
 
 typedef struct {
+  char **titleAscii;
+  int length;
+} AsciiTitle;
+
+typedef struct {
   Sudoku puzzle;
   Sudoku solution;
   Sudoku fixed;
+  AsciiTitle title;
   GameState state;
   GameLevel gameLevel;
   MenuState menuState;
@@ -103,6 +110,15 @@ bool init_game_window(UIWindow *win);
 bool init_help_window(UIWindow *win);
 bool init_exit_window(UIWindow *win);
 
+void draw_title(WINDOW *window, GameContext *ctx) {
+  AsciiTitle *title = &ctx->title;
+  int y = 2;
+  for (i32 i = 0; i < title->length; ++i) {
+    mvwprintw(window, y++, (COLS - strlen(title->titleAscii[0])) / 2, "%s",
+              title->titleAscii[i]);
+  }
+}
+
 void draw(UIWindow *window, GameContext *ctx) {
   werase(stdscr);
   wnoutrefresh(stdscr);
@@ -122,6 +138,9 @@ void draw(UIWindow *window, GameContext *ctx) {
   case EXIT:
     break;
   }
+
+  draw_title(stdscr, ctx);
+  wnoutrefresh(stdscr);
 }
 
 void handle_input(int ch, GameContext *ctx);
@@ -129,6 +148,34 @@ void handle_input(int ch, GameContext *ctx);
 UIWindow *get_curr_active_window(GameContext *ctx, UIWindow *menuW,
                                  UIWindow *gameW, UIWindow *helpW,
                                  UIWindow *exitW);
+
+char **read_title(const char *filename, int *numLines) {
+  FILE *fp = fopen(filename, "r");
+  if (!fp) {
+    fprintf(stderr, "Error: Couldn't read file %s", filename);
+    return NULL;
+  }
+
+  char **lines = malloc(MAX_LINES * sizeof(*lines));
+  if (!lines) {
+    fclose(fp);
+    return NULL;
+  }
+
+  char buffer[512];
+  i32 count = 0;
+
+  while (count < MAX_LINES && fgets(buffer, sizeof(buffer), fp)) {
+    buffer[strcspn(buffer, "\n")] = '\0';
+    lines[count] = malloc(strlen(buffer) + 1);
+    strcpy(lines[count], buffer);
+    count++;
+  }
+
+  fclose(fp);
+  *numLines = count;
+  return lines;
+}
 
 i32 main() {
   initscr();
@@ -142,6 +189,7 @@ i32 main() {
   init_pair(1, COLOR_WHITE, -1); // Normal cells
   init_pair(2, COLOR_RED, -1);
   init_pair(3, COLOR_CYAN, -1);
+
   // Seeding the random generator
   srand(time(NULL));
 
@@ -149,11 +197,11 @@ i32 main() {
   int x, y;
   getmaxyx(stdscr, y, x);
   WINDOW *debugWindow;
-
   i32 debug_h = 5;
   debugWindow = newwin(debug_h, 60, LINES - debug_h - 1, midpoint - 60 / 2);
 
   keypad(debugWindow, true);
+
   UIWindow menuWindow, gameWindow, helpWindow, exitWindow;
   if (!init_menu_window(&menuWindow) || !init_game_window(&gameWindow) ||
       !init_help_window(&helpWindow) || !init_exit_window(&exitWindow)) {
@@ -161,7 +209,12 @@ i32 main() {
     return -1;
   }
 
-  GameContext ctx = {.state = MENU, MEDIUM, CONTINUE, true};
+  int num_lines;
+  char **titleAscii = read_title("title1.txt", &num_lines);
+
+  AsciiTitle title = {titleAscii, num_lines};
+
+  GameContext ctx = {.title = title, .state = MENU, MEDIUM, CONTINUE, true};
 
   Sudoku solution;
   generate_sudoku(solution, 0, 0);
@@ -173,6 +226,8 @@ i32 main() {
   curs_set(0);
 
   i32 ch;
+  WINDOW *titlewindow = newwin(num_lines + 2, strlen(titleAscii[0]) + 2, 2,
+                               midpoint - strlen(titleAscii[0]) / 2 - 1);
 
   UIWindow *active = &menuWindow;
   draw(active, &ctx);
@@ -206,7 +261,6 @@ i32 main() {
   return 0;
 }
 void draw_menu(UIWindow *window, GameContext *ctx) {
-
   werase(window->window);
   const char *menu[] = {
       "Continue",
