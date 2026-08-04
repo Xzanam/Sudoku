@@ -15,6 +15,9 @@
 #define H_STEP 5
 #define V_STEP 2
 
+#define BOARD_TOP 1
+#define BOARD_LEFT 3
+
 #define KEY_ESC 27
 #define MAX_LINES 50
 
@@ -84,9 +87,9 @@ void handle_help_input(char ch, GameContext *ctx);
 
 // Game Input Hanlding
 void move_right(Position *currPos, Sudoku fixed);
-void move_left(Position *currPos);
-void move_up(Position *currPos);
-void move_down(Position *currPos);
+void move_left(Position *currPos, Sudoku fixed);
+void move_up(Position *currPos, Sudoku fixed);
+void move_down(Position *currPos, Sudoku fixed);
 void print_grid(WINDOW *window, Sudoku grid, Sudoku fixed);
 
 // For Sudoku Generation and Digging
@@ -120,8 +123,8 @@ void draw_title(WINDOW *window, GameContext *ctx) {
 }
 
 void draw(UIWindow *window, GameContext *ctx) {
-  werase(stdscr);
-  wnoutrefresh(stdscr);
+
+  draw_title(stdscr, ctx);
   switch (ctx->state) {
   case MENU:
     curs_set(0);
@@ -138,8 +141,6 @@ void draw(UIWindow *window, GameContext *ctx) {
   case EXIT:
     break;
   }
-
-  draw_title(stdscr, ctx);
   wnoutrefresh(stdscr);
 }
 
@@ -177,6 +178,7 @@ char **read_title(const char *filename, int *numLines) {
   return lines;
 }
 
+void set_gPos(Sudoku fixed);
 i32 main() {
   initscr();
   noecho();
@@ -244,13 +246,15 @@ i32 main() {
                                     &exitWindow);
 
     draw(active, &ctx);
-    // wclear(debugWindow);
-    // box(debugWindow, 0, 0);
+    wclear(debugWindow);
+    box(debugWindow, 0, 0);
     //
-    // mvwprintw(debugWindow, 1, 1, "%d, %d", gPos.y, gPos.x);
-    // mvwprintw(debugWindow, 3, 1, "%d, %d", last_y, last_x);
+    mvwprintw(debugWindow, 1, 1, "%d, %d", gPos.y, gPos.x);
+    mvwprintw(debugWindow, 3, 1, "%d, %d", last_y, last_x);
     //
-    // wnoutrefresh(debugWindow);
+    wnoutrefresh(debugWindow);
+    //
+    wnoutrefresh(stdscr);
     doupdate();
   }
 
@@ -305,8 +309,10 @@ void draw_game(UIWindow *win, GameContext *ctx) {
   werase(window);
   mvwin(window, (LINES - W_HEIGHT) / 2, (COLS - W_WIDTH) / 2);
   draw_grid(window, ctx->puzzle, ctx->fixed);
-  wmove(window, last_y, last_x);
   wnoutrefresh(window);
+  i32 lx = BOARD_LEFT + gPos.x * H_STEP;
+  i32 ly = BOARD_TOP + gPos.y * V_STEP;
+  wmove(window, ly, lx);
 }
 void draw_help(UIWindow *window, GameContext *ctx) { werase(window->window); }
 
@@ -338,39 +344,56 @@ void print_grid(WINDOW *window, Sudoku sudokuGrid, Sudoku fixed) {
       wattroff(window, A_BOLD | COLOR_PAIR(2));
     }
   }
-  wmove(window, 1, 3);
 }
 
 void insert_num(Sudoku grid, char ch) { grid[gPos.y][gPos.x] = ch - '0'; }
 
 void move_right(Position *pos, Sudoku fixed) {
-  if (last_x + H_STEP < W_WIDTH - 1) {
-    last_x += H_STEP;
-    pos->x = last_x / H_STEP;
-  }
-  if (fixed[pos->x][pos->y])
-    pos->x++;
+
+  i32 start = pos->x;
+  do {
+    pos->x = (pos->x + 1) % 9;
+
+    if (!fixed[pos->y][pos->x])
+      return;
+
+  } while (pos->x != start);
 }
 
-void move_left(Position *pos) {
-  if (last_x - H_STEP > 0) {
-    last_x = last_x - H_STEP;
-    pos->x = last_x / H_STEP;
-  }
+void move_left(Position *pos, Sudoku fixed) {
+  i32 start = pos->x;
+
+  do {
+
+    pos->x = (pos->x + 8) % 9;
+
+    if (!fixed[pos->y][pos->x])
+      return;
+
+  } while (pos->x != start);
 }
 
-void move_up(Position *pos) {
-  if (last_y - V_STEP > 0) {
-    last_y = last_y - V_STEP;
-    pos->y = last_y / V_STEP;
-  }
+void move_up(Position *pos, Sudoku fixed) {
+
+  i32 start = pos->y;
+
+  do {
+    pos->y = (pos->y + 8) % 9;
+
+    if (!fixed[pos->y][pos->x])
+      return;
+
+  } while (pos->y != start);
 }
 
-void move_down(Position *pos) {
-  if (last_y + V_STEP < W_HEIGHT) {
-    last_y = last_y + V_STEP;
-    pos->y = last_y / V_STEP;
-  }
+void move_down(Position *pos, Sudoku fixed) {
+  i32 start = pos->y;
+  do {
+    pos->y = (pos->y + 1) % 9;
+    if (!fixed[pos->y][pos->x])
+      return;
+
+  } while (pos->y != start);
 }
 
 void fisher_yates_shuffle(i32 *arr, i32 n) {
@@ -545,17 +568,17 @@ void handle_game_input(int ch, GameContext *ctx) {
     case KEY_LEFT:
     case 'h':
     case 'H':
-      move_left(&gPos);
+      move_left(&gPos, ctx->fixed);
       break;
     case KEY_UP:
     case 'k':
     case 'K':
-      move_up(&gPos);
+      move_up(&gPos, ctx->fixed);
       break;
     case KEY_DOWN:
     case 'j':
     case 'J':
-      move_down(&gPos);
+      move_down(&gPos, ctx->fixed);
       break;
     case KEY_BACKSPACE:
       insert_num(ctx->puzzle, '0');
