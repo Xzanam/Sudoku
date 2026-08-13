@@ -5,8 +5,16 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #define W_WIDTH 46
 #define W_HEIGHT 19
+
+#define SAVE_FILE "saved.dat"
 
 #define N 9
 #define N_H_LINES 9
@@ -64,6 +72,17 @@ typedef struct {
   MenuState menuState;
   bool isRunning;
 } GameContext;
+
+typedef struct {
+  Sudoku puzzle;
+  Sudoku solution;
+  Sudoku fixed;
+
+  i32 cursor_x;
+  i32 cursor_y;
+
+  // i32 elapsed_seconds; //  TODO
+} SaveData;
 
 Position gPos = {0, 0}; // Tracks the relative coordinates i.e index
 BitMasks gMask = {0};
@@ -178,7 +197,72 @@ char **read_title(const char *filename, int *numLines) {
   return lines;
 }
 
+// helper to get the executable's directory
+void get_exe_directory(char *buffer, size_t size) {
+#ifdef _WIN32
+  GetModuleFileNameA(NULL, buffer, size);
+#else
+  ssize_t len = readlink("/proc/self/exe", buffer, size - 1);
+  if (len != -1)
+    buffer[len] = '\0';
+#endif
+  char *last_slash = strchr(buffer, '/');
+  if (!last_slash)
+    last_slash = strchr(buffer, '\\');
+  if (last_slash)
+    *last_slash = '\0';
+}
+
 void set_gPos(Sudoku fixed);
+
+void delUIWindow(UIWindow *uiWindow) { delwin(uiWindow->window); }
+
+bool save_game(GameContext *ctx) {
+  FILE *file = fopen(SAVE_FILE, "wb");
+
+  if (!file) {
+    return false;
+  }
+  SaveData data;
+
+  memcpy(data.puzzle, ctx->puzzle, sizeof(Sudoku));
+  memcpy(data.solution, ctx->solution, sizeof(Sudoku));
+  memcpy(data.fixed, ctx->fixed, sizeof(Sudoku));
+  data.cursor_x = gPos.x;
+  data.cursor_y = gPos.y;
+
+  if (fwrite(&data, sizeof(data), 1, file) != 1) {
+    fclose(file);
+    return false;
+  }
+
+  fclose(file);
+  return true;
+}
+
+bool load_saved_game(GameContext *ctx) {
+  FILE *file = fopen(SAVE_FILE, "rb");
+  if (!file) {
+    return false;
+  }
+  SaveData data;
+
+  if (fread(&data, sizeof(SaveData), 1, file) != 1) {
+    fclose(file);
+    return false;
+  }
+
+  fclose(file);
+
+  memcpy(ctx->puzzle, data.puzzle, sizeof(Sudoku));
+  memcpy(ctx->solution, data.solution, sizeof(Sudoku));
+  memcpy(ctx->fixed, data.fixed, sizeof(Sudoku));
+
+  gPos.x = data.cursor_x;
+  gPos.y = data.cursor_y;
+  return true;
+}
+
 i32 main() {
   initscr();
   noecho();
@@ -189,8 +273,8 @@ i32 main() {
   start_color();
   use_default_colors();          // Optional: preserve terminal background
   init_pair(1, COLOR_WHITE, -1); // Normal cells
-  init_pair(2, COLOR_RED, -1);
-  init_pair(3, COLOR_CYAN, -1);
+  init_pair(2, COLOR_RED, -1);   // Wrong Cells
+  init_pair(3, COLOR_CYAN, -1);  // Fixed Cells
 
   // Seeding the random generator
   srand(time(NULL));
@@ -212,7 +296,12 @@ i32 main() {
   }
 
   int num_lines;
+  char *defaultTitle = "Sudoku";
+
   char **titleAscii = read_title("title1.txt", &num_lines);
+  if (!titleAscii) {
+    titleAscii = &defaultTitle;
+  }
 
   AsciiTitle title = {titleAscii, num_lines};
 
@@ -258,9 +347,18 @@ i32 main() {
     doupdate();
   }
 
-  printf("Exiting...");
-  // delwin(window);
+  clear();
+  refresh();
+  delwin(titlewindow);
+
+  delwin(menuWindow.window);
+  delwin(gameWindow.window);
+  delwin(helpWindow.window);
+  delwin(exitWindow.window);
+  delwin(debugWindow);
   endwin();
+
+  printf("Exiting...");
 
   return 0;
 }
@@ -558,7 +656,8 @@ void handle_game_input(int ch, GameContext *ctx) {
   } else {
     switch (ch) {
     case 'q':
-      ctx->state = MENU;
+      if (save_game(ctx))
+        ctx->state = MENU;
       break;
     case KEY_RIGHT:
     case 'l':
@@ -614,6 +713,12 @@ void handle_menu_input(i32 ch, GameContext *ctx) {
 
   case '\n':
     switch (ctx->menuState) {
+
+    case CONTINUE:
+      load_saved_game(ctx);
+      ctx->state = GAME;
+      break;
+
     case NEWGAME:
       ctx->state = GAME;
       break;
