@@ -31,6 +31,7 @@
 
 typedef uint16_t u16;
 typedef uint32_t u32;
+typedef uint64_t u64;
 typedef int32_t i32;
 typedef int64_t i64;
 
@@ -44,6 +45,12 @@ typedef struct {
   u16 col_mask[9];
   u16 box_mask[9];
 } BitMasks;
+
+// For tracking fixed cells
+typedef struct {
+  u64 low;  // cells 0 - 63
+  u64 high; // cells 64 - 80
+} FixedMask;
 
 typedef enum { EASY, MEDIUM, HARD, EXPERT } GameLevel;
 typedef enum { MENU, GAME, HELP, EXIT } GameState;
@@ -65,18 +72,19 @@ typedef struct {
 typedef struct {
   Sudoku puzzle;
   Sudoku solution;
-  Sudoku fixed;
   AsciiTitle title;
   GameState state;
   GameLevel gameLevel;
   MenuState menuState;
+  FixedMask fixedMask;
   bool isRunning;
+
 } GameContext;
 
 typedef struct {
   Sudoku puzzle;
   Sudoku solution;
-  Sudoku fixed;
+  FixedMask fixed;
 
   i32 cursor_x;
   i32 cursor_y;
@@ -87,14 +95,22 @@ typedef struct {
 Position gPos = {0, 0}; // Tracks the relative coordinates i.e index
 BitMasks gMask = {0};
 i32 last_y = 1, last_x = 3; // Tracks the absolute global coordinates;
+
 // utils
 bool isDigit(char c) { return c >= 48 && c <= 57; }
 
+// to operate on FixedMask
+void set_mask(FixedMask *mask, i32 row, i32 col);
+bool is_fixed(const FixedMask *mask, i32 row, i32 col);
+void update_fixed_mask(FixedMask *mask, Sudoku puzzle);
+
 // void draw(WINDOW *window, GameState state, GameContext *ctx);
-void draw_grid(WINDOW *window, Sudoku grid, Sudoku fixed);
+void draw_grid(WINDOW *window, Sudoku grid, const FixedMask *mask);
 void draw_horizontal_lines(WINDOW *window);
 void draw_vertical_lines(WINDOW *window);
 
+void print_grid(WINDOW *window, Sudoku sudokuGrid, const FixedMask *mask);
+;
 void draw_menu(UIWindow *window, GameContext *ctx);
 void draw_game(UIWindow *window, GameContext *ctx);
 void draw_help(UIWindow *window, GameContext *ctx);
@@ -105,11 +121,10 @@ void handle_game_input(i32 ch, GameContext *ctx);
 void handle_help_input(char ch, GameContext *ctx);
 
 // Game Input Hanlding
-void move_right(Position *currPos, Sudoku fixed);
-void move_left(Position *currPos, Sudoku fixed);
-void move_up(Position *currPos, Sudoku fixed);
-void move_down(Position *currPos, Sudoku fixed);
-void print_grid(WINDOW *window, Sudoku grid, Sudoku fixed);
+void move_right(Position *currPos, const FixedMask *mask);
+void move_left(Position *currPos, const FixedMask *mask);
+void move_up(Position *currPos, const FixedMask *mask);
+void move_down(Position *currPos, const FixedMask *mask);
 
 // For Sudoku Generation and Digging
 void fisher_yates_shuffle(i32 *arr, i32 n);
@@ -117,6 +132,7 @@ i32 is_safe(i32 grid[N][N], i32 row, i32 col, i32 num, BitMasks *masks);
 void set_bit(BitMasks *masks, i32 row, i32 col, i32 num);
 void clear_bit(BitMasks *masks, i32 row, i32 col, i32 num);
 i32 get_box_idx(i32 row, i32 col);
+i32 get_cell_idx(i32 row, i32 cold);
 i32 generate_sudoku(Sudoku grid, i32 row, i32 col);
 void count_solutions(Sudoku grid, i32 row, i32 col, i32 *count, BitMasks mask);
 void remove_cells(Sudoku grid, i32 n_cells_to_remove);
@@ -227,7 +243,8 @@ bool save_game(GameContext *ctx) {
 
   memcpy(data.puzzle, ctx->puzzle, sizeof(Sudoku));
   memcpy(data.solution, ctx->solution, sizeof(Sudoku));
-  memcpy(data.fixed, ctx->fixed, sizeof(Sudoku));
+  data.fixed = ctx->fixedMask;
+
   data.cursor_x = gPos.x;
   data.cursor_y = gPos.y;
 
@@ -256,7 +273,7 @@ bool load_saved_game(GameContext *ctx) {
 
   memcpy(ctx->puzzle, data.puzzle, sizeof(Sudoku));
   memcpy(ctx->solution, data.solution, sizeof(Sudoku));
-  memcpy(ctx->fixed, data.fixed, sizeof(Sudoku));
+  ctx->fixedMask = data.fixed;
 
   gPos.x = data.cursor_x;
   gPos.y = data.cursor_y;
@@ -312,7 +329,8 @@ i32 main() {
   memcpy(ctx.solution, solution, sizeof(Sudoku));
   memcpy(ctx.puzzle, solution, sizeof(Sudoku));
   remove_cells(ctx.puzzle, map_level_to_nclues(ctx.gameLevel));
-  memcpy(ctx.fixed, ctx.puzzle, sizeof(Sudoku));
+
+  update_fixed_mask(&ctx.fixedMask, ctx.puzzle);
 
   curs_set(0);
 
@@ -406,7 +424,7 @@ void draw_game(UIWindow *win, GameContext *ctx) {
   WINDOW *window = win->window;
   werase(window);
   mvwin(window, (LINES - W_HEIGHT) / 2, (COLS - W_WIDTH) / 2);
-  draw_grid(window, ctx->puzzle, ctx->fixed);
+  draw_grid(window, ctx->puzzle, &ctx->fixedMask);
   wnoutrefresh(window);
   i32 lx = BOARD_LEFT + gPos.x * H_STEP;
   i32 ly = BOARD_TOP + gPos.y * V_STEP;
@@ -414,11 +432,11 @@ void draw_game(UIWindow *win, GameContext *ctx) {
 }
 void draw_help(UIWindow *window, GameContext *ctx) { werase(window->window); }
 
-void draw_grid(WINDOW *window, Sudoku grid, Sudoku fixed) {
+void draw_grid(WINDOW *window, Sudoku grid, const FixedMask *mask) {
   box(window, 0, 0);
   draw_horizontal_lines(window);
   draw_vertical_lines(window);
-  print_grid(window, grid, fixed);
+  print_grid(window, grid, mask);
 }
 
 void draw_horizontal_lines(WINDOW *window) {
@@ -432,13 +450,12 @@ void draw_vertical_lines(WINDOW *window) {
   }
 }
 
-void print_grid(WINDOW *window, Sudoku sudokuGrid, Sudoku fixed) {
+void print_grid(WINDOW *window, Sudoku sudokuGrid, const FixedMask *mask) {
   for (i32 i = 0, x = 3; i < N; i++, x += H_STEP) {
     for (i32 j = 0, y = 1; j < N; j++, y += V_STEP) {
-      bool is_fixed = fixed[j][i];
-      if (is_fixed)
+      if (is_fixed(mask, i, j))
         wattron(window, A_BOLD | COLOR_PAIR(3));
-      mvwaddch(window, y, x, sudokuGrid[j][i] ? sudokuGrid[j][i] + '0' : ' ');
+      mvwaddch(window, y, x, sudokuGrid[i][j] ? sudokuGrid[i][j] + '0' : ' ');
       wattroff(window, A_BOLD | COLOR_PAIR(2));
     }
   }
@@ -446,51 +463,51 @@ void print_grid(WINDOW *window, Sudoku sudokuGrid, Sudoku fixed) {
 
 void insert_num(Sudoku grid, char ch) { grid[gPos.y][gPos.x] = ch - '0'; }
 
-void move_right(Position *pos, Sudoku fixed) {
+void move_right(Position *pos, const FixedMask *mask) {
 
   i32 start = pos->x;
   do {
     pos->x = (pos->x + 1) % 9;
 
-    if (!fixed[pos->y][pos->x])
+    if (!is_fixed(mask, pos->x, pos->y))
       return;
 
   } while (pos->x != start);
 }
 
-void move_left(Position *pos, Sudoku fixed) {
+void move_left(Position *pos, const FixedMask *mask) {
   i32 start = pos->x;
 
   do {
 
     pos->x = (pos->x + 8) % 9;
 
-    if (!fixed[pos->y][pos->x])
+    if (!is_fixed(mask, pos->x, pos->y))
       return;
 
   } while (pos->x != start);
 }
 
-void move_up(Position *pos, Sudoku fixed) {
+void move_up(Position *pos, const FixedMask *mask) {
 
   i32 start = pos->y;
 
   do {
     pos->y = (pos->y + 8) % 9;
 
-    if (!fixed[pos->y][pos->x])
+    if (!is_fixed(mask, pos->x, pos->y))
       return;
 
   } while (pos->y != start);
 }
 
-void move_down(Position *pos, Sudoku fixed) {
+void move_down(Position *pos, const FixedMask *mask) {
   i32 start = pos->y;
   do {
     pos->y = (pos->y + 1) % 9;
-    if (!fixed[pos->y][pos->x])
-      return;
 
+    if (!is_fixed(mask, pos->x, pos->y))
+      return;
   } while (pos->y != start);
 }
 
@@ -525,7 +542,8 @@ void clear_bit(BitMasks *masks, i32 row, i32 col, i32 num) {
   masks->col_mask[col] &= ~bitflag;
   masks->box_mask[get_box_idx(row, col)] &= ~bitflag;
 }
-i32 get_box_idx(i32 row, i32 col) { return (row / 3) * 3 + (col / 3); }
+inline i32 get_box_idx(i32 row, i32 col) { return (row / 3) * 3 + (col / 3); }
+inline i32 get_cell_idx(i32 row, i32 col) { return row * 9 + col; }
 
 i32 generate_sudoku(Sudoku sudokuGrid, i32 row, i32 col) {
   if (col == N) {
@@ -662,22 +680,22 @@ void handle_game_input(int ch, GameContext *ctx) {
     case KEY_RIGHT:
     case 'l':
     case 'L':
-      move_right(&gPos, ctx->fixed);
+      move_right(&gPos, &ctx->fixedMask);
       break;
     case KEY_LEFT:
     case 'h':
     case 'H':
-      move_left(&gPos, ctx->fixed);
+      move_left(&gPos, &ctx->fixedMask);
       break;
     case KEY_UP:
     case 'k':
     case 'K':
-      move_up(&gPos, ctx->fixed);
+      move_up(&gPos, &ctx->fixedMask);
       break;
     case KEY_DOWN:
     case 'j':
     case 'J':
-      move_down(&gPos, ctx->fixed);
+      move_down(&gPos, &ctx->fixedMask);
       break;
     case KEY_BACKSPACE:
       insert_num(ctx->puzzle, '0');
@@ -817,4 +835,29 @@ UIWindow *get_curr_active_window(GameContext *ctx, UIWindow *menuW,
   default:
     return exitW;
   }
+}
+
+void set_mask(FixedMask *mask, i32 row, i32 col) {
+  i32 idx = get_cell_idx(row, col);
+  if (idx < 64)
+    mask->low |= (u64)1 << idx;
+  else
+    mask->high |= (u64)1 << (idx - 64);
+}
+
+void update_fixed_mask(FixedMask *mask, Sudoku fixed) {
+  for (i32 i = 0; i < N; ++i) {
+    for (i32 j = 0; j < N; ++j) {
+      if (fixed[i][j])
+        set_mask(mask, i, j);
+    }
+  }
+}
+
+bool is_fixed(const FixedMask *mask, i32 row, i32 col) {
+  i32 idx = get_cell_idx(row, col);
+  if (idx < 64)
+    return (mask->low >> idx) & 1;
+  else
+    return (mask->high >> (idx - 64)) & 1;
 }
