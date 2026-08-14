@@ -37,6 +37,8 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef int64_t i64;
 
+cchar_t DOTTED_H;
+cchar_t DOTTED_V;
 typedef struct {
   i32 x;
   i32 y;
@@ -299,6 +301,9 @@ i32 main() {
   // Seeding the random generator
   srand(time(NULL));
 
+  setcchar(&DOTTED_H, L"-", 0, 0, NULL);
+  setcchar(&DOTTED_V, L"|", 0, 0, NULL);
+
   i32 midpoint = COLS / 2;
   int x, y;
   getmaxyx(stdscr, y, x);
@@ -363,7 +368,7 @@ i32 main() {
     //
     wnoutrefresh(debugWindow);
     //
-    wnoutrefresh(stdscr);
+    wnoutrefresh(stdscr); // TODO : FIX CALLING wnoutrefresh(stdscr) everywhere
     doupdate();
   }
 
@@ -438,17 +443,21 @@ void draw_grid(WINDOW *window, Sudoku grid, const FixedMask *mask) {
   box(window, 0, 0);
   draw_horizontal_lines(window);
   draw_vertical_lines(window);
+  // draw_grid_lines(window);
   print_grid(window, grid, mask);
 }
 
 void draw_horizontal_lines(WINDOW *window) {
+
   for (i32 i = 1; i < N_H_LINES; i++) {
-    mvwhline(window, i * V_STEP, 1, 0, W_WIDTH - 2);
+    mvwhline_set(window, i * V_STEP, 1, i % 3 ? &DOTTED_H : WACS_T_HLINE,
+                 W_WIDTH - 2);
   }
 }
 void draw_vertical_lines(WINDOW *window) {
   for (i32 i = 1; i < N_V_LINES; i++) {
-    mvwvline(window, 1, i * H_STEP, 0, W_HEIGHT - 2);
+    mvwvline_set(window, 1, i * H_STEP, i % 3 ? &DOTTED_V : WACS_T_VLINE,
+                 W_HEIGHT - 2);
   }
 }
 
