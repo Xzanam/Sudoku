@@ -1,9 +1,11 @@
-#include <curses.h>
+#define _XOPEN_SOURCE_EXTENDED 1
+#include <locale.h>
 #include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <wchar.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -281,6 +283,7 @@ bool load_saved_game(GameContext *ctx) {
 }
 
 i32 main() {
+  setlocale(LC_ALL, "");
   initscr();
   noecho();
   cbreak();
