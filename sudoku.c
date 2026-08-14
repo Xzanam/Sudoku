@@ -329,7 +329,6 @@ i32 main() {
   memcpy(ctx.solution, solution, sizeof(Sudoku));
   memcpy(ctx.puzzle, solution, sizeof(Sudoku));
   remove_cells(ctx.puzzle, map_level_to_nclues(ctx.gameLevel));
-
   update_fixed_mask(&ctx.fixedMask, ctx.puzzle);
 
   curs_set(0);
@@ -461,7 +460,7 @@ void print_grid(WINDOW *window, Sudoku sudokuGrid, const FixedMask *mask) {
   }
 }
 
-void insert_num(Sudoku grid, char ch) { grid[gPos.y][gPos.x] = ch - '0'; }
+void insert_num(Sudoku grid, char ch) { grid[gPos.x][gPos.y] = ch - '0'; }
 
 void move_right(Position *pos, const FixedMask *mask) {
 
