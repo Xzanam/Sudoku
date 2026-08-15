@@ -13,14 +13,7 @@ The project started as a simple Sudoku implementation while learning C and has b
   - Medium
   - Hard
   - Expert
-- Puzzle digging/removal while checking that the generated puzzle has a unique solution
-- Bitmask-based Sudoku constraint tracking
-- Keyboard navigation through editable cells
-- Fixed cells are skipped during navigation
 - Save and load game state
-- Separate menu, game, and help UI states
-- Color support for fixed and incorrect/user-entered cells
-- Unicode/wide-character support for custom grid styles
 
 ## Controls
 
@@ -42,7 +35,7 @@ The project started as a simple Sudoku implementation while learning C and has b
 | `k` / `↑` | Move up |
 | `l` / `→` | Move right |
 | `1` - `9` | Insert a number |
-| `Backspace` | Clear current cell |
+| `Backspace` / 0 | Clear current cell |
 | `q` | Save and return to menu |
 
 Navigation automatically skips fixed cells.
@@ -169,13 +162,13 @@ The project is currently organized around the following responsibilities:
 
 ```text
 .
-├── source files
+├── sudoku.c //Single File main source code
 ├── title1.txt
 ├── saved.dat          # generated at runtime
 └── README.md
 ```
 
-The current implementation keeps the game, UI, Sudoku generation, input handling, and save/load functionality in the C source rather than splitting them into separate modules.
+The current implementation keeps the game, UI, Sudoku generation, input handling, and save/load functionality in the single C source rather than splitting them into separate modules.
 
 ## Building
 
@@ -240,11 +233,6 @@ The position stores Sudoku-relative coordinates rather than terminal coordinates
 
 Terminal coordinates are calculated from the cell position using the configured board offsets and spacing.
 
-### UI State
-
-The game context contains the current puzzle, solution, UI state, difficulty, menu state, fixed-cell mask, and running state.
-
-This allows input handling and rendering to depend on the current application state without mixing menu and game logic.
-
+## License
 
 No license has been specified for this project yet.
